@@ -1,0 +1,15 @@
+[package]
+name = "dst-mods"
+version = "0.1.0"
+edition = "2021"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+anyhow = "1.0.66"
+clap = { version = "4.0.29", features = ["derive"] }
+fs_extra = "1.2.0"
+home = "0.5.4"
+rlua = "0.19.4"
+serde = { version = "1.0.148", features = ["derive"] }
+toml = "0.5.9"
