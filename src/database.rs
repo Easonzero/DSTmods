@@ -130,7 +130,8 @@ pub trait DataBase: AsRef<Path> {
 
     fn insert(&self, elem: &Mod) -> Result<()> {
         let name = self.get_name(elem.id);
-        let options = fs_extra::dir::CopyOptions::new();
+        let mut options = fs_extra::dir::CopyOptions::new();
+        options.copy_inside = true;
         fs_extra::dir::copy(elem.path.as_path(), self.as_ref().join(&name), &options)?;
         Ok(())
     }

@@ -3,7 +3,7 @@ use serde::{Deserialize, Serialize};
 use std::io::{BufWriter, Write};
 use std::path::PathBuf;
 
-const STORAGE_NAME: &str = "dst_mods.toml";
+const STORAGE_NAME: &str = ".dst_mods.toml";
 
 #[derive(Deserialize, Serialize, Default)]
 pub struct Config {
