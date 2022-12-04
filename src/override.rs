@@ -14,9 +14,10 @@ pub struct Override {
 
 impl Override {
     pub fn load(path: &Path) -> Result<Self> {
-        let mut paths = vec![];
-        paths.push(path.join("DoNotStarveTogether/BearDediServer/world0/modoverrides.lua"));
-        paths.push(path.join("DoNotStarveTogether/BearDediServer/world1/modoverrides.lua"));
+        let paths = vec![
+            path.join("DoNotStarveTogether/BearDediServer/world0/modoverrides.lua"),
+            path.join("DoNotStarveTogether/BearDediServer/world1/modoverrides.lua"),
+        ];
 
         let content = fs::read_to_string(&paths[0])?;
 

@@ -48,8 +48,6 @@ pub struct Cli {
     steamapps: Option<PathBuf>,
     #[clap(long)]
     save: Option<PathBuf>,
-    #[clap(long)]
-    save_path: Option<PathBuf>,
     #[command(subcommand)]
     command: Commands,
 }
