@@ -65,6 +65,7 @@ impl Override {
         let mut file = BufWriter::new(file);
 
         self.dump(&mut file)?;
+        file.flush()?;
 
         for other in &self.paths[1..] {
             fs::copy(base, other)?;
