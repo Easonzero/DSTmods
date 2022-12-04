@@ -8,6 +8,7 @@ const STORAGE_NAME: &str = ".dst_mods.toml";
 #[derive(Deserialize, Serialize, Default)]
 pub struct Config {
     pub steam_apps: PathBuf,
+    pub save: PathBuf,
 }
 
 pub fn store(config: &Config) -> Result<()> {

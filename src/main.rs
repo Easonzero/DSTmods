@@ -1,47 +1,19 @@
 mod config;
 mod database;
 mod lua_ctx;
+mod r#override;
+mod steam_apps;
 
 use anyhow::Result;
 use clap::{Args, Parser, Subcommand};
 use config::*;
 use database::{DataBase, Mod};
-use std::collections::HashMap;
-use std::path::{Path, PathBuf};
-
-struct SteamApps {
-    client: [PathBuf; 2],
-    server: PathBuf,
-    client_list: HashMap<usize, Mod>,
-    server_list: HashMap<usize, Mod>,
-}
-
-impl SteamApps {
-    fn load(path: &Path) -> Result<Self> {
-        let server = path.join("common/Don't Starve Together Dedicated Server/mods");
-        let client = [
-            path.join("common/Don't Starve Together/mods"),
-            path.join("workshop/content/322330"),
-        ];
-
-        let server_list = server.list()?.map(|x| (x.id, x)).collect();
-        let client_list = client[0]
-            .list()?
-            .chain(client[1].list()?)
-            .map(|x| (x.id, x))
-            .collect();
-
-        Ok(Self {
-            client,
-            server,
-            server_list,
-            client_list,
-        })
-    }
-}
+use r#override::*;
+use std::{collections::HashMap, path::PathBuf};
+use steam_apps::*;
 
 #[derive(Args)]
-struct List {
+pub struct List {
     #[arg(long)]
     client: bool,
     #[arg(long)]
@@ -51,7 +23,7 @@ struct List {
 }
 
 #[derive(Subcommand)]
-enum Commands {
+pub enum Commands {
     List(List),
     Sync {
         ids: Vec<usize>,
@@ -63,14 +35,19 @@ enum Commands {
     },
     Option {
         id: usize,
+        args: Option<String>,
+        #[arg(long)]
+        all: bool,
     },
 }
 
 #[derive(Parser)]
 #[clap(author, version, about, long_about = None)]
-struct Cli {
+pub struct Cli {
     #[clap(long)]
     steamapps: Option<PathBuf>,
+    #[clap(long)]
+    save: Option<PathBuf>,
     #[clap(long)]
     save_path: Option<PathBuf>,
     #[command(subcommand)]
@@ -84,100 +61,53 @@ fn main() -> Result<()> {
     if let Some(steam_apps) = cli.steamapps {
         config.steam_apps = steam_apps;
     }
+    if let Some(save) = cli.save {
+        config.save = save;
+    }
     store(&config)?;
 
     let steam_apps = SteamApps::load(&config.steam_apps)?;
 
     match cli.command {
         Commands::List(args) => {
-            let list = if args.client {
-                &steam_apps.client_list
-            } else {
-                &steam_apps.server_list
-            };
-
-            println!(
-                "{} {} mods:",
-                if args.diff { "diff" } else { "list" },
-                if args.client { "client" } else { "server" }
-            );
-            if args.diff {
-                let diff_list = if args.client {
-                    &steam_apps.server_list
-                } else {
-                    &steam_apps.client_list
-                };
-
-                for elem in list.values().filter(|elem| args.all || !elem.client_only) {
-                    if !diff_list.contains_key(&elem.id) {
-                        println!("[+] {:<10} => {}", elem.id, elem.name.trim());
-                        println!("\t\t{:?}", elem.path);
-                    }
-                }
-                for elem in diff_list
-                    .values()
-                    .filter(|elem| args.all || !elem.client_only)
-                {
-                    if !list.contains_key(&elem.id) {
-                        println!("[-] {:<10} => {}", elem.id, elem.name.trim());
-                        println!("\t\t{:?}", elem.path);
-                    }
-                }
-            } else {
-                for elem in list.values().filter(|elem| args.all || !elem.client_only) {
-                    println!("{:<10} => {}", elem.id, elem.name.trim());
-                    println!("\t\t{:?}", elem.path);
-                }
-            }
+            steam_apps.list(&args);
         }
         Commands::Sync { ids } => {
+            let mut modoverrides = Override::load(&config.save)?;
             for id in ids {
-                if let Some(x) = steam_apps.client_list.get(&id) {
-                    steam_apps.server.insert(x)?;
-                } else {
-                    eprintln!("WARN! {} not found", id);
-                }
+                steam_apps.sync(id)?;
+                modoverrides.insert(id, Default::default());
             }
+            modoverrides.sink()?;
         }
         Commands::Remove { ids, client } => {
+            let mut modoverrides = Override::load(&config.save)?;
             for id in ids {
-                if client {
-                    for database in &steam_apps.client {
-                        database.remove(id);
-                    }
-                } else {
-                    steam_apps.server.remove(id);
-                }
+                steam_apps.remove(id, client);
+                modoverrides.remove(id);
             }
+            modoverrides.sink()?;
         }
-        Commands::Option { id } => {
-            let elem = if let Some(elem) = steam_apps.client_list.get(&id) {
-                elem
-            } else if let Some(elem) = steam_apps.server_list.get(&id) {
-                elem
-            } else {
-                eprintln!("WARN! {} not found", id);
-                return Ok(());
-            };
-            println!("{:<10} => {}", id, elem.name);
-            println!("\t\t{:?}", elem.path);
-            let options = elem.read_options()?;
+        Commands::Option { id, args, all } => {
+            if let Some(args) = args {
+                let mut items = HashMap::new();
+                let pairs = args.split(',');
+                for pair in pairs {
+                    let mut kv = pair.split('=');
+                    let k = kv.next().expect("invalid option");
+                    let v = kv.next().expect("invalid option");
 
-            for option in options {
-                println!(
-                    "\t{}({}): --{}",
-                    option.name,
-                    option.default,
-                    option.description.as_deref().unwrap_or("")
-                );
-
-                for item in option.options {
-                    println!(
-                        "\t\t{}: --{}",
-                        item.data,
-                        item.description.as_deref().unwrap_or("")
-                    );
+                    items.insert(k.to_owned(), v.to_owned());
                 }
+                let mut modoverrides = Override::load(&config.save)?;
+                modoverrides.insert(id, items);
+                modoverrides.sink()?;
+            }
+            if all {
+                steam_apps.read_options(id)?;
+            } else {
+                let modoverrides = Override::load(&config.save)?;
+                modoverrides.list(id);
             }
         }
     }
