@@ -72,9 +72,16 @@ fn main() -> Result<()> {
         }
         Commands::Sync { ids } => {
             let mut modoverrides = Override::load(&config.save)?;
-            for id in ids {
-                steam_apps.sync(id)?;
-                modoverrides.insert(id, Default::default());
+            if !ids.is_empty() {
+                for id in ids {
+                    steam_apps.sync(id)?;
+                    modoverrides.insert(id, Default::default());
+                }
+            } else {
+                steam_apps.sync_all()?;
+                for id in steam_apps.server_ids() {
+                    modoverrides.insert(id, Default::default());
+                }
             }
             modoverrides.sink()?;
         }

@@ -20,12 +20,44 @@ pub struct ModOption {
 #[derive(Debug)]
 pub struct Mod {
     pub name: String,
+    pub version: String,
     pub id: usize,
     pub path: PathBuf,
     pub client_only: bool,
 }
 
 impl Mod {
+    pub fn load(path: &Path) -> Result<Option<Self>> {
+        let Some(file_name) = path.file_name() else { return Ok(None) };
+        let file_name = file_name.to_str().unwrap();
+        let Some(Ok(id)) = file_name
+            .split('-')
+            .rev()
+            .next()
+            .map(|x| x.parse::<usize>())
+            else { return Ok(None) };
+
+        let info_path = path.join("modinfo.lua");
+        let Ok(content) = std::fs::read_to_string(info_path) else { return Ok(None) };
+
+        let x = lua().context(|ctx| -> rlua::Result<_> {
+            let globals = ctx.globals();
+            globals.set("folder_name", file_name)?;
+            ctx.load(&content).exec()?;
+            let name: String = globals.get("name")?;
+            let version: String = globals.get("version")?;
+            let client_only: bool = globals.get("client_only_mod")?;
+
+            Ok(Mod {
+                name,
+                path: path.to_owned(),
+                id,
+                version,
+                client_only,
+            })
+        })?;
+        Ok(Some(x))
+    }
     pub fn read_options(&self) -> Result<Vec<ModOption>> {
         let file_name = self.path.file_name().unwrap();
         let file_name = file_name.to_str().unwrap();
@@ -79,34 +111,11 @@ impl Iterator for ModIter {
     fn next(&mut self) -> Option<Self::Item> {
         let Ok(entry) = self.0.next()? else { return self.next(); };
         let path = entry.path();
-        let file_name = entry.file_name();
-        let file_name = file_name.to_str().unwrap();
-        let Some(Ok(id)) = file_name
-            .split('-')
-            .rev()
-            .next()
-            .map(|x| x.parse::<usize>()) else { return self.next(); };
-
-        let info_path = path.join("modinfo.lua");
-        let Ok(content) = std::fs::read_to_string(info_path) else { return self.next(); };
-
-        let x = lua()
-            .context(|ctx| -> rlua::Result<_> {
-                let globals = ctx.globals();
-                globals.set("folder_name", file_name)?;
-                ctx.load(&content).exec()?;
-                let name: String = globals.get("name")?;
-                let client_only: bool = globals.get("client_only_mod")?;
-
-                Ok(Mod {
-                    name,
-                    path,
-                    id,
-                    client_only,
-                })
-            })
-            .unwrap_or_else(|_| panic!("cannot parse mod {}", id));
-        Some(x)
+        if let Some(x) = Mod::load(&path).unwrap() {
+            Some(x)
+        } else {
+            self.next()
+        }
     }
 }
 
@@ -130,9 +139,21 @@ pub trait DataBase: AsRef<Path> {
 
     fn insert(&self, elem: &Mod) -> Result<()> {
         let name = self.get_name(elem.id);
-        let mut options = fs_extra::dir::CopyOptions::new();
-        options.copy_inside = true;
-        fs_extra::dir::copy(elem.path.as_path(), self.as_ref().join(&name), &options)?;
+        let path = self.as_ref().join(&name);
+
+        if let Some(x) = Mod::load(&path).unwrap() {
+            if x.version != elem.version {
+                let mut options = fs_extra::dir::CopyOptions::new();
+                options.copy_inside = false;
+                options.overwrite = true;
+                fs_extra::dir::copy(elem.path.as_path(), path, &options)?;
+            }
+        } else {
+            let mut options = fs_extra::dir::CopyOptions::new();
+            options.copy_inside = true;
+            fs_extra::dir::copy(elem.path.as_path(), path, &options)?;
+        }
+
         Ok(())
     }
 }

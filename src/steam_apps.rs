@@ -33,6 +33,19 @@ impl SteamApps {
         })
     }
 
+    pub fn server_ids(&self) -> Vec<usize> {
+        self.server_list.keys().copied().collect()
+    }
+
+    pub fn sync_all(&self) -> Result<()> {
+        for id in self.server_list.keys() {
+            if let Some(x) = self.client_list.get(id) {
+                self.server.insert(x)?;
+            }
+        }
+        Ok(())
+    }
+
     pub fn sync(&self, id: usize) -> Result<()> {
         if let Some(x) = self.client_list.get(&id) {
             self.server.insert(x)?;
